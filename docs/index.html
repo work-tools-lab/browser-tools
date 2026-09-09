@@ -1,1 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>01</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
 
+      body {
+        display: grid;
+        min-height: 100vh;
+        min-height: 100dvh;
+        margin: 0;
+        place-items: center;
+      }
+
+      form,
+      #items {
+        display: grid;
+        gap: 1rem;
+      }
+
+      label {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        font-variant-numeric: tabular-nums;
+      }
+
+      input,
+      button {
+        min-width: 1.25rem;
+        min-height: 1.25rem;
+      }
+
+      button {
+        margin-top: 0.5rem;
+        padding: 0.5rem 1.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="selection">
+      <div id="items">
+        <label><input type="checkbox" value="0"> <span>01</span></label>
+      </div>
+      <button type="submit">OK</button>
+    </form>
+    <script>
+      const items = [{"url":"./f01/01.zip","name":"01.zip"}];
+      const form = document.querySelector("#selection");
+      const button = form.querySelector("button");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const selected = [...form.querySelectorAll("input:checked")];
+
+        if (selected.length === 0) {
+          return;
+        }
+
+        button.disabled = true;
+
+        try {
+          const results = await Promise.all(selected.map(async (input) => {
+            const item = items[Number(input.value)];
+            const response = await fetch(item.url, { cache: "no-store" });
+
+            if (!response.ok) {
+              throw new Error(String(response.status));
+            }
+
+            return { blob: await response.blob(), name: item.name };
+          }));
+
+          for (const result of results) {
+            const url = URL.createObjectURL(result.blob);
+            const link = document.createElement("a");
+            link.hidden = true;
+            link.href = url;
+            link.download = result.name;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Local uploader</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+
+      body {
+        display: grid;
+        min-height: 100vh;
+        min-height: 100dvh;
+        margin: 0;
+        place-items: center;
+      }
+
+      main {
+        box-sizing: border-box;
+        width: min(40rem, calc(100% - 2rem));
+      }
+
+      form {
+        display: grid;
+        gap: 1rem;
+      }
+
+      input,
+      button {
+        font: inherit;
+      }
+
+      button {
+        justify-self: start;
+        padding: 0.5rem 1.5rem;
+      }
+
+      ul {
+        padding-left: 1.5rem;
+        overflow-wrap: anywhere;
+      }
+
+      output {
+        min-height: 1.5em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <form id="upload-form">
+        <input id="files" name="files" type="file" multiple required>
+        <ul id="names"></ul>
+        <button type="submit" disabled>Upload</button>
+        <output id="status" aria-live="polite"></output>
+      </form>
+    </main>
+    <script>
+      const form = document.querySelector("#upload-form");
+      const input = document.querySelector("#files");
+      const names = document.querySelector("#names");
+      const button = form.querySelector("button");
+      const status = document.querySelector("#status");
+      let localToken = "";
+
+      async function requestJson(url, options = {}) {
+        const headers = new Headers(options.headers || {});
+        headers.set("X-Local-Token", localToken);
+        const response = await fetch(url, { ...options, headers });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(body.error || `HTTP ${response.status}`);
+        }
+
+        return body;
+      }
+
+      input.addEventListener("change", () => {
+        names.replaceChildren(...[...input.files].map((file) => {
+          const item = document.createElement("li");
+          item.textContent = file.name;
+          return item;
+        }));
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const files = [...input.files];
+
+        if (files.length === 0) {
+          return;
+        }
+
+        input.disabled = true;
+        button.disabled = true;
+        status.textContent = "Uploading...";
+
+        try {
+          const batch = await requestJson("/api/batches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              files: files.map((file) => ({ name: file.name, size: file.size }))
+            })
+          });
+
+          for (const [index, file] of files.entries()) {
+            const response = await fetch(`/api/batches/${batch.token}/${index + 1}`, {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/octet-stream",
+                "X-Local-Token": localToken
+              },
+              body: file
+            });
+
+            if (!response.ok) {
+              const body = await response.json().catch(() => ({}));
+              throw new Error(body.error || `HTTP ${response.status}`);
+            }
+
+            status.textContent = `Uploading ${index + 1}/${files.length}...`;
+          }
+
+          const result = await requestJson(`/api/batches/${batch.token}/complete`, {
+            method: "POST"
+          });
+          input.value = "";
+          names.replaceChildren();
+          status.textContent = `${result.batch}: ${result.count}`;
+        } catch (error) {
+          status.textContent = error instanceof Error ? error.message : "Error";
+        } finally {
+          input.disabled = false;
+          button.disabled = false;
+        }
+      });
+
+      fetch("/api/config", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((config) => {
+          localToken = config.token;
+          button.disabled = false;
+        })
+        .catch(() => {
+          status.textContent = "Error";
+        });
+    </script>
+  </body>
+</html>
